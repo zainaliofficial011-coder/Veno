@@ -110,3 +110,55 @@ llama.cpp variants (`use_mmap` ≤ b10103 aur `llama_load_mode` ≥ b10150) ke s
    `imagen-4.0-generate-001`, `veo-3.0-generate-preview` etc.).
 
 Author: **macotina**. App: **AML — Advance Model Loader**.
+
+---
+
+## 5. v3.1 — pehle build ka compile error (fix)
+
+Aap ke Colab run ne yeh dikhaya:
+
+```
+e: .../engine/AnthropicClient.kt:89:82 Label must be named
+e: .../engine/AnthropicClient.kt:89:87 Expecting '{'
+e: .../engine/AnthropicClient.kt:96:74 Label must be named
+e: .../engine/AnthropicClient.kt:96:79 Expecting '{'
+```
+
+**Wajah:** `val block = json.optJSONObject("content_block") ?: return@when` — Kotlin mein `when` lambda nahi
+hota, is liye `return@when` ek invalid label hai (aur compiler ke liye syntax error ban jata hai).
+
+**Fix (v3.1):** dono jagah `return@when` hata kar normal null-check kar diya:
+
+```kotlin
+val block = json.optJSONObject("content_block")
+if (block?.optString("type") == "tool_use") { assembler.add(index, block.optString("id"), block.optString("name"), null) }
+...
+val delta = json.optJSONObject("delta")
+if (delta != null) { when (delta.optString("type")) { ... } }
+```
+
+Isi round mein 3 aur cheezein theek/enhance ki gayi hain:
+
+| # | Kya | Kyun |
+|---|---|---|
+| 1 | `MessageEntity.mediaPaths` ab **extension property** hai (entity ke andar nahi) | Room entity mein computed property column nahi ban sakti — KSP error ka khatra khatam |
+| 2 | `ButtonDefaults.filledIconButtonColors` → **`IconButtonDefaults.filledIconButtonColors`** | `FilledIconButton` ke colors `IconButtonDefaults` mein hote hain — **yeh bhi ek compile error hota** (file-wise report hui hi nahi thi) |
+| 3 | TTS: event collector ab `rememberUpdatedState(tts)` use karta hai | pehle collector pehla (engine-null) controller pakad leta tha → auto-speak chup-chaap kaam nahi karta |
+| 4 | versionCode 4 / versionName **3.1** | aapt2 verify mein pata chalta hai ke naya build install hua |
+
+**Notebook (v3.1) mein naya safety step:** build se pehle `gradle compileDebugKotlin` (**Kotlin-only source gate**)
+chalta hai. Koi source error ho to 1–2 minute mein saaf error mil jata hai — poora native build (4+ min) barbaad
+nahi hota. Uske baad hi `assembleDebug` hota hai.
+
+**Agar dobara kuch aaye:** cell 1 mein `SOURCE = "upload"` kar dein aur `AML_Android_Project_v3.1.zip`
+upload kar dein — notebook baaqi sab khud manage karega (llama.cpp, manifest, icon), notebook dobara
+download karne ki zarurat nahi.
+
+### Is round ki verification
+- `return@when` fix + negative test: purana bug jaan-boojh kar daala, checker ne pakra ✅
+- **kscan** (naya checker: brackets, missing imports, cross-package extension properties, named-args,
+  arity vs declaration, duplicate top-level, invalid jump labels) → **OK - clean** on all 23 files
+- **klint** (invalid labels, `when` exhaustiveness over enums, enum constants, object members) → OK
+- **extcheck** (Compose extension/icon imports) → OK
+- Shipped zip se project extract kar ke dobara teenon checkers + notebook ka source lint → sab clean
+- Notebook: saare code cells Python-compile, `EMBEDDED_B64` == inner zip byte-for-byte, outer zip testzip clean
